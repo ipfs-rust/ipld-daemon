@@ -6,14 +6,15 @@ edition = "2018"
 
 [dependencies]
 async-std = "0.99"
+async-trait = "0.1"
 atty = "0.2"
 caps = { git = "https://github.com/dvc94ch/caps-rs", branch = "misc" }
-clap = "2.33"
 exitfailure = "0.5"
 failure = "0.1"
+libipld = { path = "../rust-ipld" }
+multibase = { git = "https://github.com/multiformats/rust-multibase" }
 signal-hook = "0.1"
 slog = "2.5"
 slog-async = "2.3"
 slog-journald = "2.1"
 slog-term = "2.4"
-structopt = "0.3"

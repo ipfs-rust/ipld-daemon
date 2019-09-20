@@ -1,23 +1,23 @@
-use async_std::task;
+use async_std::{
+    fs::{self, File, Permissions},
+    io::Write,
+    os::unix::net::{UnixListener, UnixStream},
+    stream::Stream,
+    task,
+};
 use caps::CapSet;
 use exitfailure::ExitFailure;
-use slog::{info, o, Drain};
-use std::path::PathBuf;
+use failure::Error;
+use ipld_daemon::{cid_path, SOCKET_PATH, STORE_PATH, VAR_PATH};
+use libipld::cbor::ReadCbor;
+use libipld::{decode_ipld, validate, BlockError, Cid};
+use slog::{o, Drain, Logger};
+use std::os::unix::fs::PermissionsExt;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use structopt::StructOpt;
 
-#[derive(StructOpt, Debug)]
-struct Opts {
-    /// The etc path.
-    #[structopt(long = "etc", default_value = "/etc")]
-    etc: PathBuf,
-    /// The var path.
-    #[structopt(long = "var", default_value = "/var/ipfs")]
-    var: PathBuf,
-    /// The store path.
-    #[structopt(long = "store", default_value = "/ipfs/blocks")]
-    store: PathBuf,
+fn main() -> Result<(), ExitFailure> {
+    task::block_on(run())
 }
 
 async fn run() -> Result<(), ExitFailure> {
@@ -35,35 +35,65 @@ async fn run() -> Result<(), ExitFailure> {
     };
     let log = slog::Logger::root(drain, o!());
 
-    // Parse cli args
-    let opts = Opts::from_args();
-    info!(log, "etc: {}", &opts.etc.to_str().unwrap());
-    info!(log, "var: {}", &opts.var.to_str().unwrap());
-    info!(log, "store: {}", &opts.store.to_str().unwrap());
-
     // Setup signal handlers
     let sigterm = Arc::new(AtomicBool::new(false));
     signal_hook::flag::register(signal_hook::SIGTERM, sigterm.clone())?;
-    let sighup = Arc::new(AtomicBool::new(false));
-    signal_hook::flag::register(signal_hook::SIGHUP, sighup.clone())?;
 
-    // Load config
-    // TODO load config
+    // Setup store
+    create_store().await?;
+
+    // Setup socket
+    fs::remove_file(SOCKET_PATH).await?;
+    slog::info!(log, "listening at {}", SOCKET_PATH);
+    let listener = UnixListener::bind(SOCKET_PATH).await?;
+    let perms = Permissions::from_mode(0o777);
+    fs::set_permissions(SOCKET_PATH, perms).await?;
+    let mut incoming = listener.incoming();
 
     // When SIGTERM is received, shut down the daemon and exit cleanly
     while !sigterm.load(Ordering::Relaxed) {
-        // If SIGHUP is received, reload the configuration files
-        if sighup.load(Ordering::Relaxed) {
-            sighup.store(false, Ordering::SeqCst);
-            // TODO reload config
-            info!(log, "reloading config");
+        if let Some(stream) = incoming.next().await {
+            slog::info!(log, "client connected");
+            task::spawn(handle_client(log.clone(), stream?));
         }
-        //return Err(failure::format_err!("bailing").into());
     }
 
     Ok(())
 }
 
-fn main() -> Result<(), ExitFailure> {
-    task::block_on(run())
+async fn create_store() -> Result<(), Error> {
+    fs::create_dir_all(STORE_PATH).await?;
+    fs::create_dir_all(VAR_PATH).await?;
+    // TODO create db
+    Ok(())
+}
+
+async fn add_to_store(cid: &Cid, data: &[u8]) -> Result<(), BlockError> {
+    validate(cid, data)?;
+    let _ipld = decode_ipld(cid, data).await?;
+    // TODO add links to db
+    let path = cid_path(cid);
+    let mut file = File::create(&path).await?;
+    file.write_all(&data).await?;
+    file.sync_data().await?;
+    Ok(())
+}
+
+async fn handle_client(log: Logger, mut stream: UnixStream) {
+    loop {
+        if let Err(e) = inner_handle_client(&log, &mut stream).await {
+            match e {
+                BlockError::UnexpectedEof => break,
+                _ => slog::error!(log, "{}", e),
+            }
+        }
+    }
+}
+
+async fn inner_handle_client(log: &Logger, stream: &mut UnixStream) -> Result<(), BlockError> {
+    let cid: Cid = ReadCbor::read_cbor(stream).await?;
+    let data: Box<[u8]> = ReadCbor::read_cbor(stream).await?;
+    slog::info!(log, "received block");
+    add_to_store(&cid, &data).await?;
+    Ok(())
 }
