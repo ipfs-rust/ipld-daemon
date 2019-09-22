@@ -4,11 +4,12 @@ use async_std::os::unix::{fs::symlink, net::UnixStream};
 use async_trait::async_trait;
 use const_concat::const_concat;
 use libipld::cbor::WriteCbor;
-use libipld::{BlockError, Cid, Result, Store};
+use libipld::{BlockError, Cid, DefaultHash as H, Hash, Result, Store};
 use multibase::Base;
 use std::convert::TryFrom;
 use std::io::{ErrorKind, Result as IoResult};
-use std::path::{Path, PathBuf};
+use std::os::unix::ffi::OsStrExt;
+use std::path::Path;
 
 /// The PREFIX_PATH
 pub const PREFIX_PATH: &str = "/tmp";
@@ -38,29 +39,29 @@ pub fn cid_file_name(cid: &Cid) -> String {
 
 /// Store path for block.
 pub fn cid_store_path(cid: &Cid) -> Box<Path> {
-    let mut buf = PathBuf::from(STORE_PATH);
-    buf.push(cid_file_name(cid));
-    buf.into_boxed_path()
+    Path::new(STORE_PATH)
+        .join(cid_file_name(cid))
+        .into_boxed_path()
 }
 
 /// Pin path for block.
 pub fn cid_pin_path(user: &str, app: &str, cid: &Cid) -> Box<Path> {
-    let mut buf = PathBuf::from(PIN_PER_USER_PATH);
-    buf.push(user);
-    buf.push(app);
-    buf.push("pins");
-    buf.push(cid_file_name(cid));
-    buf.into_boxed_path()
+    Path::new(PIN_PER_USER_PATH)
+        .join(user)
+        .join(app)
+        .join("pins")
+        .join(cid_file_name(cid))
+        .into_boxed_path()
 }
 
 /// Link path.
 pub fn link_path(user: &str, app: &str, link: &str) -> Box<Path> {
-    let mut buf = PathBuf::from(PIN_PER_USER_PATH);
-    buf.push(user);
-    buf.push(app);
-    buf.push("links");
-    buf.push(link);
-    buf.into_boxed_path()
+    Path::new(PIN_PER_USER_PATH)
+        .join(user)
+        .join(app)
+        .join("links")
+        .join(link)
+        .into_boxed_path()
 }
 
 /// Create directory.
@@ -120,21 +121,18 @@ impl BlockStore {
     pub async fn connect(app_name: &str) -> Result<Self> {
         let socket = UnixStream::connect(SOCKET_PATH).await?;
 
-        let mut app_dir = PathBuf::from(PIN_PER_USER_PATH);
-        app_dir.push(whoami::username());
-        app_dir.push(app_name);
+        let app_dir = Path::new(PIN_PER_USER_PATH)
+            .join(whoami::username())
+            .join(app_name);
         fs::create_dir_all(&app_dir).await?;
 
-        let mut pin_dir = app_dir.clone();
-        pin_dir.push("pins");
+        let pin_dir = app_dir.join("pins");
         create_dir(&pin_dir).await?;
 
-        let mut auto_dir = app_dir.clone();
-        auto_dir.push("auto");
+        let auto_dir = app_dir.join("auto");
         create_dir(&auto_dir).await?;
 
-        let mut link_dir = app_dir.clone();
-        link_dir.push("links");
+        let link_dir = app_dir.join("links");
         create_dir(&link_dir).await?;
 
         let lock_file = fs::OpenOptions::new()
@@ -179,13 +177,37 @@ impl Store for BlockStore {
 
     async fn unpin(&self, cid: &Cid) -> Result<()> {
         let file_name = cid_file_name(cid);
-        let mut pin_path = PathBuf::from(self.pin_dir.clone());
-        pin_path.push(&file_name);
+        let pin_path = self.pin_dir.join(&file_name);
         remove_file(&pin_path).await?;
         Ok(())
     }
 
     async fn autopin(&self, cid: &Cid, auto_path: &Path) -> Result<()> {
+        let file_name = cid_file_name(cid);
+        let store_path = Path::new(STORE_PATH).join(&file_name);
+
+        let (auto_path, auto_parent, auto_name) = {
+            let parent = auto_path.parent();
+            let name = auto_path
+                .file_name()
+                .map(|n| n.to_str())
+                .unwrap_or_default();
+            let (parent, name) = if let (Some(parent), Some(name)) = (parent, name) {
+                (parent, name)
+            } else {
+                return Err(BlockError::InvalidLink);
+            };
+            let parent = fs::canonicalize(parent).await?;
+            let path = parent.join(name);
+            (path, parent, name)
+        };
+
+        let bytes = auto_path.as_os_str().as_bytes();
+        let hash = H::digest(bytes).to_bytes();
+        let link_name = multibase::encode(Base::Base64UrlUpperNoPad, hash);
+
+        atomic_symlink(&store_path, &auto_parent, auto_name).await?;
+        atomic_symlink(&auto_path, &self.auto_dir, &link_name).await?;
         Ok(())
     }
 
@@ -197,8 +219,7 @@ impl Store for BlockStore {
     }
 
     async fn read_link(&self, link: &str) -> Result<Option<Cid>> {
-        let mut link_path = PathBuf::from(self.link_dir.clone());
-        link_path.push(link);
+        let link_path = self.link_dir.join(link);
 
         match fs::read_link(link_path).await {
             Ok(path) => {
@@ -217,8 +238,7 @@ impl Store for BlockStore {
     }
 
     async fn remove_link(&self, link: &str) -> Result<()> {
-        let mut link_path = PathBuf::from(self.link_dir.clone());
-        link_path.push(link);
+        let link_path = self.link_dir.join(link);
         // Remove symlink if it exists
         remove_file(&link_path).await?;
         Ok(())
@@ -291,6 +311,38 @@ mod tests {
     #[ignore]
     fn pin_unpin_block() {
         task::block_on(run_pin_unpin_block()).unwrap();
+    }
+
+    async fn run_autopin_block() -> Result<(), Error> {
+        // setup
+        let store = BlockStore::connect("test").await?;
+        let user = whoami::username();
+        let auto_dir = Path::new(PIN_PER_USER_PATH)
+            .join(user)
+            .join("test")
+            .join("auto");
+        let cid = Cid::random();
+        let auto_path = Path::new("/tmp/autolink");
+        let hash_plain = b"/tmp/autolink";
+        let hash = H::digest(hash_plain);
+        let name = multibase::encode(Base::Base64UrlUpperNoPad, hash);
+
+        store.autopin(&cid, &auto_path).await?;
+        let res = fs::read_link(&auto_path).await?;
+        assert_eq!(res.into_boxed_path(), cid_store_path(&cid));
+        let res = fs::read_link(&auto_dir.join(name)).await?;
+        assert_eq!(&res, auto_path);
+
+        // Autopin should not error if already pinned
+        store.autopin(&cid, &auto_path).await?;
+
+        Ok(())
+    }
+
+    #[test]
+    #[ignore]
+    fn autopin_block() {
+        task::block_on(run_autopin_block()).unwrap();
     }
 
     async fn run_create_read_remove_link() -> Result<(), Error> {
