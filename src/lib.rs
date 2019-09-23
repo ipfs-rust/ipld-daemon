@@ -1,5 +1,6 @@
 #![feature(const_str_as_bytes, const_str_len)]
 use async_std::fs::{self, File};
+use async_std::io::Write;
 use async_std::os::unix::{fs::symlink, net::UnixStream};
 use async_trait::async_trait;
 use const_concat::const_concat;
@@ -166,6 +167,11 @@ impl Store for BlockStore {
         Ok(())
     }
 
+    async fn flush(&self) -> Result<()> {
+        (&mut &self.socket).flush().await?;
+        Ok(())
+    }
+
     async fn pin(&self, cid: &Cid) -> Result<()> {
         let file_name = cid_file_name(cid);
         let store_path = Path::new(STORE_PATH).join(&file_name);
@@ -261,6 +267,7 @@ mod tests {
         let cid = Cid::random();
         let data = vec![0, 1, 2, 3].into_boxed_slice();
         store.write(&cid, data.clone()).await?;
+        store.flush().await?;
 
         // Send valid block
         let ipld = ipld!("hello world!");
