@@ -21,3 +21,6 @@ slog-async = "2.3"
 slog-journald = "2.1"
 slog-term = "2.4"
 whoami = "0.5"
+
+[dev-dependencies]
+model = "0.1"

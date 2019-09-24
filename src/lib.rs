@@ -172,6 +172,10 @@ impl Store for BlockStore {
         Ok(())
     }
 
+    async fn gc(&self) -> Result<()> {
+        Ok(())
+    }
+
     async fn pin(&self, cid: &Cid) -> Result<()> {
         let file_name = cid_file_name(cid);
         let store_path = Path::new(STORE_PATH).join(&file_name);
@@ -255,74 +259,68 @@ impl Store for BlockStore {
 mod tests {
     use super::*;
     use async_std::task;
-    use core::result::Result;
-    use failure::Error;
     use libipld::{create_cbor_block, ipld, DefaultHash as H};
     use std::time::Duration;
 
-    async fn run_read_write_block() -> Result<(), Error> {
-        let store = BlockStore::connect("test").await?;
+    async fn run_read_write_block() {
+        let store = BlockStore::connect("test").await.unwrap();
 
         // Send invalid block
         let cid = Cid::random();
         let data = vec![0, 1, 2, 3].into_boxed_slice();
-        store.write(&cid, data.clone()).await?;
-        store.flush().await?;
+        store.write(&cid, data.clone()).await.unwrap();
+        store.flush().await.unwrap();
 
         // Send valid block
         let ipld = ipld!("hello world!");
-        let (cid, data) = create_cbor_block::<H, _>(&ipld).await?;
-        remove_file(&cid_store_path(&cid)).await?;
-        assert!(store.read(&cid).await?.is_none());
-        store.write(&cid, data.clone()).await?;
+        let (cid, data) = create_cbor_block::<H, _>(&ipld).await.unwrap();
+        remove_file(&cid_store_path(&cid)).await.unwrap();
+        assert!(store.read(&cid).await.unwrap().is_none());
+        store.write(&cid, data.clone()).await.unwrap();
 
         // Check that the block was written to disk.
         task::sleep(Duration::from_millis(100)).await;
-        let data2 = store.read(&cid).await?.unwrap();
+        let data2 = store.read(&cid).await.unwrap().unwrap();
         assert_eq!(data, data2);
-
-        Ok(())
     }
 
     #[test]
     #[ignore]
     fn read_write_block() {
-        task::block_on(run_read_write_block()).unwrap();
+        task::block_on(run_read_write_block());
     }
 
-    async fn run_pin_unpin_block() -> Result<(), Error> {
+    async fn run_pin_unpin_block() {
         // setup
-        let store = BlockStore::connect("test").await?;
+        let store = BlockStore::connect("test").await.unwrap();
         let user = whoami::username();
         let cid = Cid::random();
         let path = cid_pin_path(&user, "test", &cid);
         assert!(fs::read_link(&path).await.is_err());
 
-        store.pin(&cid).await?;
-        let res = fs::read_link(&path).await?;
+        store.pin(&cid).await.unwrap();
+        let res = fs::read_link(&path).await.unwrap();
         assert_eq!(res.into_boxed_path(), cid_store_path(&cid));
 
         // Pin should not error if already pinned.
-        store.pin(&cid).await?;
+        store.pin(&cid).await.unwrap();
 
-        store.unpin(&cid).await?;
+        store.unpin(&cid).await.unwrap();
         assert!(fs::read_link(&path).await.is_err());
 
         // Unpin should not error if not pinned
-        store.unpin(&cid).await?;
-
-        Ok(())
+        store.unpin(&cid).await.unwrap();
     }
 
     #[test]
     #[ignore]
     fn pin_unpin_block() {
-        task::block_on(run_pin_unpin_block()).unwrap();
+        task::block_on(run_pin_unpin_block());
     }
 
-    async fn run_autopin_block() -> Result<(), Error> {
+    async fn run_autopin_block() {
         // setup
-        let store = BlockStore::connect("test").await?;
+        let store = BlockStore::connect("test").await.unwrap();
         let user = whoami::username();
         let auto_dir = Path::new(PIN_PER_USER_PATH)
             .join(user)
@@ -334,27 +332,25 @@ mod tests {
         let hash = H::digest(hash_plain);
         let name = multibase::encode(Base::Base64UrlUpperNoPad, hash);
 
-        store.autopin(&cid, &auto_path).await?;
-        let res = fs::read_link(&auto_path).await?;
+        store.autopin(&cid, &auto_path).await.unwrap();
+        let res = fs::read_link(&auto_path).await.unwrap();
         assert_eq!(res.into_boxed_path(), cid_store_path(&cid));
-        let res = fs::read_link(&auto_dir.join(name)).await?;
+        let res = fs::read_link(&auto_dir.join(name)).await.unwrap();
         assert_eq!(&res, auto_path);
 
         // Autopin should not error if already pinned
-        store.autopin(&cid, &auto_path).await?;
-
-        Ok(())
+        store.autopin(&cid, &auto_path).await.unwrap();
     }
 
     #[test]
     #[ignore]
     fn autopin_block() {
-        task::block_on(run_autopin_block()).unwrap();
+        task::block_on(run_autopin_block());
     }
 
-    async fn run_create_read_remove_link() -> Result<(), Error> {
+    async fn run_create_read_remove_link() {
         // setup
-        let store = BlockStore::connect("test").await?;
+        let store = BlockStore::connect("test").await.unwrap();
         let user = whoami::username();
         let cid = Cid::random();
         let pin_path = cid_pin_path(&user, "test", &cid);
@@ -362,26 +358,24 @@ mod tests {
         assert!(fs::read_link(&link_path).await.is_err());
 
         // create
-        store.write_link("link", &cid).await?;
-        let res = fs::read_link(&link_path).await?;
+        store.write_link("link", &cid).await.unwrap();
+        let res = fs::read_link(&link_path).await.unwrap();
         assert_eq!(res.into_boxed_path(), pin_path);
-        assert_eq!(store.read_link("link").await?.as_ref(), Some(&cid));
+        assert_eq!(store.read_link("link").await.unwrap().as_ref(), Some(&cid));
 
         // update
-        store.write_link("link", &Cid::random()).await?;
+        store.write_link("link", &Cid::random()).await.unwrap();
 
         // remove
-        store.remove_link("link").await?;
+        store.remove_link("link").await.unwrap();
         assert!(fs::read_link(&link_path).await.is_err());
-        assert!(store.read_link("link").await?.is_none());
-        store.remove_link("link").await?;
-
-        Ok(())
+        assert!(store.read_link("link").await.unwrap().is_none());
+        store.remove_link("link").await.unwrap();
     }
 
     #[test]
     #[ignore]
     fn create_read_remove_link() {
-        task::block_on(run_create_read_remove_link()).unwrap();
+        task::block_on(run_create_read_remove_link());
     }
 }
