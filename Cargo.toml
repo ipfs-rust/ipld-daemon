@@ -24,3 +24,7 @@ whoami = "0.5"
 
 [dev-dependencies]
 model = "0.1"
+futures-preview = { version = "0.3.0-alpha.18", features = ["async-await", "nightly"] }
+
+[profile.release]
+debug = true
