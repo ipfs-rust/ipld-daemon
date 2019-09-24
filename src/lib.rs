@@ -287,8 +287,8 @@ mod tests {
         assert_eq!(data, data2);
     }
 
-    #[test]
-    #[ignore]
+    //#[test]
+    //#[ignore]
     fn read_write_block() {
         task::block_on(run_read_write_block());
     }
@@ -398,8 +398,8 @@ mod tests {
         })
     }
 
-    #[test]
-    #[ignore]
+    //#[test]
+    //#[ignore]
     fn mem_buf_store_eqv() {
         const LEN: usize = 4;
         let blocks: Vec<_> = (0..LEN).into_iter().map(create_block_raw).collect();
