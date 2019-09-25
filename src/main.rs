@@ -8,7 +8,7 @@ use async_std::{
 use caps::CapSet;
 use exitfailure::ExitFailure;
 use failure::Fail;
-use ipld_daemon::{cid_store_path, DB_PATH, PIN_PER_USER_PATH, SOCKET_PATH, STORE_PATH, VAR_PATH};
+use ipld_daemon::paths::Paths;
 use libipld::cbor::{CborError, ReadCbor, WriteCbor};
 use libipld::{decode_ipld, references, validate, BlockError, Cid};
 use sled::Db;
@@ -16,12 +16,20 @@ use slog::{o, Drain, Logger};
 use std::os::unix::fs::PermissionsExt;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use structopt::StructOpt;
 
-fn main() -> Result<(), ExitFailure> {
-    task::block_on(run())
+#[derive(StructOpt, Debug)]
+pub struct Opts {
+    #[structopt(short = "p", long = "prefix", default_value = "/tmp")]
+    prefix: String,
 }
 
-async fn run() -> Result<(), ExitFailure> {
+fn main() -> Result<(), ExitFailure> {
+    let opts = Opts::from_args();
+    task::block_on(run(opts))
+}
+
+async fn run(opts: Opts) -> Result<(), ExitFailure> {
     // Drop capabilities
     caps::clear(None, CapSet::Permitted)?;
 
@@ -41,24 +49,26 @@ async fn run() -> Result<(), ExitFailure> {
     signal_hook::flag::register(signal_hook::SIGTERM, sigterm.clone())?;
 
     // Setup store
-    fs::create_dir_all(STORE_PATH).await?;
-    fs::create_dir_all(PIN_PER_USER_PATH).await?;
-    fs::create_dir_all(VAR_PATH).await?;
-    let db = Db::open(DB_PATH)?;
+    let paths = Paths::new(&opts.prefix);
+    fs::create_dir_all(paths.blocks()).await?;
+    fs::create_dir_all(paths.per_user()).await?;
+    fs::create_dir_all(paths.var()).await?;
+    let db = Db::open(paths.db())?;
 
     // Setup socket
-    fs::remove_file(SOCKET_PATH).await.ok();
-    let listener = UnixListener::bind(SOCKET_PATH).await?;
+    fs::remove_file(paths.socket()).await.ok();
+    let listener = UnixListener::bind(paths.socket()).await?;
     let perms = Permissions::from_mode(0o777);
-    fs::set_permissions(SOCKET_PATH, perms).await?;
+    fs::set_permissions(paths.socket(), perms).await?;
     let mut incoming = listener.incoming();
-    slog::info!(log, "listening at {}", SOCKET_PATH);
+    slog::info!(log, "listening at {:?}", paths.socket());
 
     // When SIGTERM is received, shut down the daemon and exit cleanly
     while !sigterm.load(Ordering::Relaxed) {
         if let Some(stream) = incoming.next().await {
             slog::info!(log, "client connected");
-            task::spawn(handle_client(log.clone(), db.clone(), stream?));
+            let task = Task::new(&log, &paths, &db, stream?);
+            task::spawn(task.run());
         }
     }
 
@@ -101,48 +111,68 @@ impl From<libipld::cbor::CborError> for Error {
     }
 }
 
-async fn add_to_store(log: &Logger, db: &Db, cid: &Cid, data: &[u8]) -> Result<(), Error> {
-    // Early exit if block is already in store
-    if db.get(&cid.to_bytes())?.is_some() {
-        slog::info!(log, "block exists");
-        return Ok(());
-    }
-
-    // Verify block
-    validate(cid, data)?;
-    let ipld = decode_ipld(cid, data).await?;
-
-    // Add block and it's references to db.
-    let cids: Vec<Cid> = references(&ipld).into_iter().collect();
-    let mut bytes = Vec::new();
-    cids.write_cbor(&mut bytes);
-    if let Ok(()) = db.cas(&cid.to_bytes(), None as Option<&[u8]>, Some(bytes))? {
-        slog::info!(log, "writing block to disk");
-        // Add block to fs.
-        let path = cid_store_path(cid);
-        let mut file = File::create(&path).await?;
-        file.write_all(&data).await?;
-        file.sync_data().await?;
-    }
-
-    Ok(())
+pub struct Task {
+    log: Logger,
+    paths: Paths,
+    db: Db,
+    stream: UnixStream,
 }
 
-async fn handle_client(log: Logger, db: Db, mut stream: UnixStream) {
-    loop {
-        if let Err(e) = inner_handle_client(&log, &db, &mut stream).await {
-            if let Error::Cbor(CborError::UnexpectedEof) = e {
-                break;
-            }
-            slog::error!(log, "{}", e);
+impl Task {
+    fn new(log: &Logger, paths: &Paths, db: &Db, stream: UnixStream) -> Self {
+        Self {
+            log: log.clone(),
+            db: db.clone(),
+            paths: paths.clone(),
+            stream,
         }
     }
-}
 
-async fn inner_handle_client(log: &Logger, db: &Db, stream: &mut UnixStream) -> Result<(), Error> {
-    let cid: Cid = ReadCbor::read_cbor(stream).await?;
-    let data: Box<[u8]> = ReadCbor::read_cbor(stream).await?;
-    slog::info!(log, "received block");
-    add_to_store(log, db, &cid, &data).await?;
-    Ok(())
+    async fn add_to_store(&self, cid: &Cid, data: &[u8]) -> Result<(), Error> {
+        // Early exit if block is already in store
+        if self.db.get(&cid.to_bytes())?.is_some() {
+            slog::info!(self.log, "block exists");
+            return Ok(());
+        }
+
+        // Verify block
+        validate(cid, data)?;
+        let ipld = decode_ipld(cid, data).await?;
+
+        // Add block and it's references to db.
+        let cids: Vec<Cid> = references(&ipld).into_iter().collect();
+        let mut bytes = Vec::new();
+        cids.write_cbor(&mut bytes);
+        if let Ok(()) = self
+            .db
+            .cas(&cid.to_bytes(), None as Option<&[u8]>, Some(bytes))?
+        {
+            slog::info!(self.log, "writing block to disk");
+            // Add block to fs.
+            let mut file = File::create(&self.paths.block(cid)).await?;
+            file.write_all(&data).await?;
+            file.sync_data().await?;
+        }
+
+        Ok(())
+    }
+
+    async fn request(&self) -> Result<(), Error> {
+        let cid: Cid = ReadCbor::read_cbor(&mut &self.stream).await?;
+        let data: Box<[u8]> = ReadCbor::read_cbor(&mut &self.stream).await?;
+        slog::info!(self.log, "received block");
+        self.add_to_store(&cid, &data).await?;
+        Ok(())
+    }
+
+    async fn run(self) {
+        loop {
+            if let Err(e) = self.request().await {
+                if let Error::Cbor(CborError::UnexpectedEof) = e {
+                    break;
+                }
+                slog::error!(self.log, "{}", e);
+            }
+        }
+    }
 }

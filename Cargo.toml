@@ -9,7 +9,6 @@ async-std = "0.99"
 async-trait = "0.1"
 atty = "0.2"
 caps = { git = "https://github.com/dvc94ch/caps-rs", branch = "misc" }
-const-concat = { git = "https://github.com/vurich/const-concat" }
 exitfailure = "0.5"
 failure = "0.1"
 libipld = { path = "../rust-ipld" }
@@ -20,6 +19,8 @@ slog = "2.5"
 slog-async = "2.3"
 slog-journald = "2.1"
 slog-term = "2.4"
+structopt = "0.3.2"
+tempdir = "0.3.7"
 whoami = "0.5"
 
 [dev-dependencies]
