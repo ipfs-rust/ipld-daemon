@@ -8,7 +8,6 @@ edition = "2018"
 async-std = "0.99"
 async-trait = "0.1"
 atty = "0.2"
-caps = { git = "https://github.com/dvc94ch/caps-rs", branch = "misc" }
 exitfailure = "0.5"
 failure = "0.1"
 ipld-daemon-common = { path = "../common" }
@@ -17,6 +16,9 @@ signal-hook = "0.1"
 sled = "0.28"
 slog = "2.5"
 slog-async = "2.3"
-slog-journald = "2.1"
 slog-term = "2.4"
 structopt = "0.3.2"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+caps = { git = "https://github.com/dvc94ch/caps-rs", branch = "misc" }
+slog-journald = "2.1"

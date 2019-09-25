@@ -5,7 +5,6 @@ use async_std::{
     stream::Stream,
     task,
 };
-use caps::CapSet;
 use exitfailure::ExitFailure;
 use ipld_daemon_common::paths::Paths;
 use sled::Db;
@@ -23,21 +22,38 @@ pub struct Service {
     socket: UnixListener,
 }
 
+fn setup_tty_logger() -> Logger {
+    let decorator = slog_term::TermDecorator::new().build();
+    let drain = slog_term::FullFormat::new(decorator).build().fuse();
+    let drain = slog_async::Async::new(drain).build().fuse();
+    slog::Logger::root(drain, o!())
+}
+
+#[cfg(target_os = "linux")]
+fn setup_journald_logger() -> Logger {
+    let drain = slog_journald::JournaldDrain.ignore_res();
+    let drain = slog_async::Async::new(drain).build().fuse();
+    slog::Logger::root(drain, o!())
+}
+
+fn setup_no_tty_logger() -> Logger {
+    #[cfg(target_os = "linux")]
+    return setup_journald_logger();
+    #[cfg(not(target_os = "linux"))]
+    setup_tty_logger()
+}
+
 impl Service {
     pub async fn setup<P: AsRef<Path>>(prefix: P) -> Result<Self, ExitFailure> {
-        // Drop capabilities
-        caps::clear(None, CapSet::Permitted)?;
+        #[cfg(target_os = "linux")]
+        caps::clear(None, caps::CapSet::Permitted)?;
 
         // Setup logger
-        let drain = if atty::is(atty::Stream::Stderr) {
-            let decorator = slog_term::TermDecorator::new().build();
-            let drain = slog_term::FullFormat::new(decorator).build().fuse();
-            slog_async::Async::new(drain).build().fuse()
+        let log = if atty::is(atty::Stream::Stderr) {
+            setup_tty_logger()
         } else {
-            let drain = slog_journald::JournaldDrain.ignore_res();
-            slog_async::Async::new(drain).build().fuse()
+            setup_no_tty_logger()
         };
-        let log = slog::Logger::root(drain, o!());
 
         // Setup signal handlers
         let sigterm = Arc::new(AtomicBool::new(false));
