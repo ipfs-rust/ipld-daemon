@@ -143,6 +143,7 @@ mod tests {
     use async_std::task;
     use core::future::Future;
     use futures::join;
+    use ipld_daemon::Service;
     use libipld::{create_cbor_block, create_raw_block, ipld, DefaultHash as H, MemStore};
     use model::*;
     use std::sync::Arc;
@@ -151,16 +152,17 @@ mod tests {
 
     async fn setup() -> (TempDir, Arc<BlockStore>, AppPaths) {
         let tmp = TempDir::new("ipld-daemon").unwrap();
-        let store = Arc::new(BlockStore::connect("/tmp", "test").await.unwrap());
-        let paths = Paths::new("/tmp").to_app_paths(&whoami::username(), "test");
+        let service = Service::setup(tmp.path()).await.unwrap();
+        task::spawn(service.run());
+        let store = Arc::new(BlockStore::connect(tmp.path(), "test").await.unwrap());
+        let paths = Paths::new(tmp.path()).to_app_paths(&whoami::username(), "test");
         (tmp, store, paths)
     }
 
     #[test]
-    #[ignore]
     fn read_write_block() {
         task::block_on(async {
-            let (_, store, paths) = setup().await;
+            let (_tmp, store, paths) = setup().await;
 
             // Send invalid block
             let cid = Cid::random();
@@ -189,7 +191,7 @@ mod tests {
     fn pin_unpin_block() {
         task::block_on(async {
             // setup
-            let (_, store, paths) = setup().await;
+            let (_tmp, store, paths) = setup().await;
             let cid = Cid::random();
             assert!(fs::read_link(&paths.pin(&cid)).await.is_err());
 
@@ -212,7 +214,7 @@ mod tests {
     fn autopin_block() {
         task::block_on(async {
             // setup
-            let (_, store, paths) = setup().await;
+            let (_tmp, store, paths) = setup().await;
             let cid = Cid::random();
             let auto_path = Path::new("/tmp/autolink");
             let hash_plain = b"/tmp/autolink";
@@ -234,7 +236,7 @@ mod tests {
     fn create_read_remove_link() {
         task::block_on(async {
             // setup
-            let (_, store, paths) = setup().await;
+            let (_tmp, store, paths) = setup().await;
             let cid = Cid::random();
             assert!(fs::read_link(&paths.link("link")).await.is_err());
 

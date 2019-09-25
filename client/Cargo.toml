@@ -14,5 +14,6 @@ whoami = "0.5"
 
 [dev-dependencies]
 futures-preview = { version = "0.3.0-alpha.18", features = ["async-await", "nightly"] }
+ipld-daemon = { path = "../daemon" }
 model = "0.1"
 tempdir = "0.3.7"
