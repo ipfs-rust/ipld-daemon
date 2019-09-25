@@ -1,8 +1,6 @@
 use crate::error::Error;
-use async_std::fs::File;
-use async_std::io::Write;
 use async_std::os::unix::net::UnixStream;
-use ipld_daemon_common::paths::Paths;
+use ipld_daemon_common::{paths::Paths, utils};
 use libipld::cbor::{CborError, ReadCbor, WriteCbor};
 use libipld::{decode_ipld, references, validate, Cid};
 use sled::Db;
@@ -28,7 +26,7 @@ impl Task {
     pub async fn add_to_store(&self, cid: &Cid, data: &[u8]) -> Result<(), Error> {
         // Early exit if block is already in store
         if self.db.get(&cid.to_bytes())?.is_some() {
-            slog::info!(self.log, "block exists");
+            slog::debug!(self.log, "block exists");
             return Ok(());
         }
 
@@ -44,11 +42,9 @@ impl Task {
             .db
             .cas(&cid.to_bytes(), None as Option<&[u8]>, Some(bytes))?
         {
-            slog::info!(self.log, "writing block to disk");
-            // Add block to fs.
-            let mut file = File::create(&self.paths.block(cid)).await?;
-            file.write_all(&data).await?;
-            file.sync_data().await?;
+            slog::debug!(self.log, "writing block to disk");
+            // Add block atomically to fs.
+            utils::atomic_write_file(&self.paths.blocks(), &self.paths.cid(cid), &data).await?;
         }
 
         Ok(())
@@ -57,7 +53,7 @@ impl Task {
     pub async fn request(&self) -> Result<(), Error> {
         let cid: Cid = ReadCbor::read_cbor(&mut &self.stream).await?;
         let data: Box<[u8]> = ReadCbor::read_cbor(&mut &self.stream).await?;
-        slog::info!(self.log, "received block");
+        slog::debug!(self.log, "received block");
         self.add_to_store(&cid, &data).await?;
         Ok(())
     }

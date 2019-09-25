@@ -1,0 +1,9 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+xs 2230350713 2032414277 765340270 80500515 # shrinks to [Pin(0)]
+xs 2356881016 1805641252 542777089 2961124892 # shrinks to [Pin(3), Read(1), Pin(3), Read(1), Unpin(2), Write(3), Pin(2), Read(3), Unpin(2), Read(1), Write(1), Pin(2), Pin(1), Pin(2), Unpin(3), Write(0)]
+xs 217804610 2456420450 3123196090 4211537152 # shrinks to (2, [ReadLink(0), WriteLink((0, 2)), ReadLink(0)])

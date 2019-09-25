@@ -280,7 +280,7 @@ mod tests {
         let blocks: Vec<_> = (0..LEN).into_iter().map(create_block_raw).collect();
         model! {
             Model => let mem_store = MemStore::default(),
-            Implementation => let (_, store, _) = task::block_on(setup()),
+            Implementation => let (_tmp, store, _) = task::block_on(setup()),
             Read(usize)(i in 0..LEN) => {
                 let (cid, _) = &blocks[i];
                 let mem = mem_store.read(cid);
@@ -375,7 +375,7 @@ mod tests {
     #[test]
     #[ignore]
     fn linearizable() {
-        let (_, store, _) = task::block_on(setup());
+        let (_tmp, store, _) = task::block_on(setup());
         linearizable_store!(store.clone());
     }
 }

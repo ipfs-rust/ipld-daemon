@@ -70,7 +70,7 @@ impl Service {
         let mut incoming = self.socket.incoming();
         while !self.sigterm.load(Ordering::Relaxed) {
             if let Some(stream) = incoming.next().await {
-                slog::info!(self.log, "client connected");
+                slog::debug!(self.log, "client connected");
                 let task = Task::new(&self.log, &self.paths, &self.db, stream?);
                 task::spawn(task.run());
             }

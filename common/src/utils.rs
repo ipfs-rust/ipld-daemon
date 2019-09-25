@@ -1,4 +1,5 @@
-use async_std::fs;
+use async_std::fs::{self, File};
+use async_std::io::Write;
 use async_std::os::unix::fs::symlink;
 use std::io::{ErrorKind, Result};
 use std::path::Path;
@@ -44,5 +45,15 @@ pub async fn atomic_symlink(src: &Path, dst: &Path, name: &str) -> Result<()> {
     let dst_new = dst.join(name.to_owned() + ".new");
     symlink(src, &dst_new).await?;
     fs::rename(&dst_new, dst.join(name)).await?;
+    Ok(())
+}
+
+/// Atomic write file.
+pub async fn atomic_write_file(path: &Path, name: &str, bytes: &[u8]) -> Result<()> {
+    let path_new = path.join(name.to_owned() + ".new");
+    let mut file = File::create(&path_new).await?;
+    file.write_all(bytes).await?;
+    file.sync_data().await?;
+    fs::rename(&path_new, path.join(name)).await?;
     Ok(())
 }
