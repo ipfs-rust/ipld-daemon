@@ -53,9 +53,12 @@ impl Service {
         // Setup socket
         fs::remove_file(paths.socket()).await.ok();
         let socket = UnixListener::bind(paths.socket()).await?;
-        let perms = Permissions::from_mode(0o777);
-        fs::set_permissions(paths.socket(), perms).await?;
         slog::info!(log, "listening at {:?}", paths.socket());
+
+        // Set permissions on per_user dir and socket.
+        let perms = Permissions::from_mode(0o777);
+        fs::set_permissions(paths.socket(), perms.clone()).await?;
+        fs::set_permissions(paths.per_user(), perms).await?;
 
         Ok(Self {
             log,
