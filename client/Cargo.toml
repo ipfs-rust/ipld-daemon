@@ -1,0 +1,18 @@
+[package]
+name = "ipld-daemon-client"
+version = "0.1.0"
+authors = ["David Craven <david@craven.ch>"]
+edition = "2018"
+
+[dependencies]
+async-std = "0.99"
+async-trait = "0.1"
+ipld-daemon-common = { path = "../common" }
+libipld = { path = "../../rust-ipld" }
+multibase = { git = "https://github.com/multiformats/rust-multibase" }
+whoami = "0.5"
+
+[dev-dependencies]
+futures-preview = { version = "0.3.0-alpha.18", features = ["async-await", "nightly"] }
+model = "0.1"
+tempdir = "0.3.7"

@@ -8,7 +8,7 @@ use async_std::{
 use caps::CapSet;
 use exitfailure::ExitFailure;
 use failure::Fail;
-use ipld_daemon::paths::Paths;
+use ipld_daemon_common::paths::Paths;
 use libipld::cbor::{CborError, ReadCbor, WriteCbor};
 use libipld::{decode_ipld, references, validate, BlockError, Cid};
 use sled::Db;

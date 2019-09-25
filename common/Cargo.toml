@@ -1,0 +1,10 @@
+[package]
+name = "ipld-daemon-common"
+version = "0.1.0"
+authors = ["David Craven <david@craven.ch>"]
+edition = "2018"
+
+[dependencies]
+async-std = "0.99"
+libipld = { path = "../../rust-ipld" }
+multibase = { git = "https://github.com/multiformats/rust-multibase" }

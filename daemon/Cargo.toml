@@ -1,0 +1,22 @@
+[package]
+name = "ipld-daemon"
+version = "0.1.0"
+authors = ["David Craven <david@craven.ch>"]
+edition = "2018"
+
+[dependencies]
+async-std = "0.99"
+async-trait = "0.1"
+atty = "0.2"
+caps = { git = "https://github.com/dvc94ch/caps-rs", branch = "misc" }
+exitfailure = "0.5"
+failure = "0.1"
+ipld-daemon-common = { path = "../common" }
+libipld = { path = "../../rust-ipld" }
+signal-hook = "0.1"
+sled = "0.28"
+slog = "2.5"
+slog-async = "2.3"
+slog-journald = "2.1"
+slog-term = "2.4"
+structopt = "0.3.2"
