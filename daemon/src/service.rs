@@ -1,15 +1,9 @@
 use crate::task::Task;
-use async_std::{
-    fs::{self, Permissions},
-    os::unix::net::UnixListener,
-    stream::Stream,
-    task,
-};
+use async_std::{fs, os::unix::net::UnixListener, stream::Stream, task};
 use exitfailure::ExitFailure;
-use ipld_daemon_common::paths::Paths;
+use ipld_daemon_common::{paths::Paths, utils};
 use sled::Db;
 use slog::{o, Drain, Logger};
-use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -45,6 +39,7 @@ fn setup_no_tty_logger() -> Logger {
 
 impl Service {
     pub async fn setup<P: AsRef<Path>>(prefix: P) -> Result<Self, ExitFailure> {
+        // Drop capabilities
         #[cfg(target_os = "linux")]
         caps::clear(None, caps::CapSet::Permitted)?;
 
@@ -60,21 +55,19 @@ impl Service {
         signal_hook::flag::register(signal_hook::SIGTERM, sigterm.clone())?;
 
         // Setup store
-        let paths = Paths::new(prefix);
+        let paths = Paths::new(prefix.as_ref());
         fs::create_dir_all(paths.blocks()).await?;
-        fs::create_dir_all(paths.per_user()).await?;
+        utils::create_dir_with_perm(paths.per_user(), 0o777).await?; // rwx-rwx-rwx
+        utils::create_file_with_perm(paths.lock(), 0o666).await?; // rw-rw-rw
         fs::create_dir_all(paths.var()).await?;
         let db = Db::open(paths.db())?;
 
         // Setup socket
-        fs::remove_file(paths.socket()).await.ok();
+        utils::remove_file(paths.socket()).await.ok();
         let socket = UnixListener::bind(paths.socket()).await?;
-        slog::info!(log, "listening at {:?}", paths.socket());
+        utils::set_permissions(paths.socket(), 0o777).await?; // rwx-rwx-rwx
 
-        // Set permissions on per_user dir and socket.
-        let perms = Permissions::from_mode(0o777);
-        fs::set_permissions(paths.socket(), perms.clone()).await?;
-        fs::set_permissions(paths.per_user(), perms).await?;
+        slog::info!(log, "listening at {:?}", paths.socket());
 
         Ok(Self {
             log,

@@ -7,3 +7,6 @@ members = [
 
 [profile.release]
 debug = true
+
+[patch.crates-io]
+async-std = { git = "https://github.com/dvc94ch/async-std" }

@@ -5,6 +5,7 @@ authors = ["David Craven <david@craven.ch>"]
 edition = "2018"
 
 [dependencies]
+async-filelock = { git = "https://github.com/dvc94ch/async-filelock" }
 async-std = "0.99"
 async-trait = "0.1"
 ipld-daemon-common = { path = "../common" }

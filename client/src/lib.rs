@@ -1,3 +1,4 @@
+use async_filelock::FileExt;
 use async_std::fs::{self, File};
 use async_std::io::Write;
 use async_std::os::unix::net::UnixStream;
@@ -16,7 +17,7 @@ use std::path::Path;
 pub struct BlockStore {
     socket: UnixStream,
     paths: AppPaths,
-    _lock: File,
+    lock: File,
 }
 
 impl BlockStore {
@@ -33,14 +34,13 @@ impl BlockStore {
         let lock = fs::OpenOptions::new()
             .read(true)
             .write(true)
-            .create(true)
             .open(paths.lock())
             .await?;
 
         Ok(Self {
             socket,
             paths,
-            _lock: lock,
+            lock,
         })
     }
 }
@@ -70,8 +70,9 @@ impl Store for BlockStore {
     async fn pin(&self, cid: &Cid) -> Result<()> {
         let block = self.paths.block(cid);
         // Needs a shared lock, to prevent a race with the garbage collector.
-        //self.lock_file.lock_shared();
+        self.lock.lock_shared();
         utils::atomic_symlink(&block, &self.paths.pins(), &self.paths.cid(cid)).await?;
+        self.lock.unlock();
         Ok(())
     }
 
@@ -179,11 +180,12 @@ mod tests {
             let (cid, data) = create_cbor_block::<H, _>(&ipld).await.unwrap();
             assert!(store.read(&cid).await.unwrap().is_none());
             store.write(&cid, data.clone()).await.unwrap();
+            store.flush().await.unwrap();
 
             // Check that the block was written to disk.
             task::sleep(Duration::from_millis(100)).await;
-            let data2 = store.read(&cid).await.unwrap().unwrap();
-            assert_eq!(data, data2);
+            let data2 = store.read(&cid).await.unwrap();
+            assert_eq!(Some(data), data2);
         });
     }
 
