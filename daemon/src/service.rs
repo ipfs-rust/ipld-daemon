@@ -67,8 +67,6 @@ impl Service {
         let socket = UnixListener::bind(paths.socket()).await?;
         utils::set_permissions(paths.socket(), 0o777).await?; // rwx-rwx-rwx
 
-        slog::info!(log, "listening at {:?}", paths.socket());
-
         Ok(Self {
             log,
             paths,
@@ -79,6 +77,7 @@ impl Service {
     }
 
     pub async fn run(self) -> Result<(), ExitFailure> {
+        slog::info!(self.log, "listening at {:?}", self.paths.socket());
         let mut incoming = self.socket.incoming();
         while !self.sigterm.load(Ordering::Relaxed) {
             if let Some(stream) = incoming.next().await {
