@@ -1,5 +1,5 @@
 use crate::task::Task;
-use async_std::{fs, os::unix::net::UnixListener, stream::Stream, task};
+use async_std::{fs, os::unix::net::UnixListener, prelude::*, task};
 use exitfailure::ExitFailure;
 use ipld_daemon_common::{paths::Paths, utils};
 use sled::Db;

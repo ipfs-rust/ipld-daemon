@@ -1,6 +1,6 @@
 use async_std::fs::{self, File, Permissions};
-use async_std::io::Write;
 use async_std::os::unix::fs::symlink;
+use async_std::prelude::*;
 use std::io::{ErrorKind, Result};
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;

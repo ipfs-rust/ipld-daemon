@@ -1,7 +1,7 @@
 use async_filelock::FileExt;
 use async_std::fs::{self, File};
-use async_std::io::Write;
 use async_std::os::unix::net::UnixStream;
+use async_std::prelude::*;
 use async_trait::async_trait;
 use ipld_daemon_common::paths::{AppPaths, Paths};
 use ipld_daemon_common::utils;
