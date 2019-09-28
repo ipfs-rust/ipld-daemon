@@ -11,7 +11,7 @@ atty = "0.2"
 exitfailure = "0.5"
 failure = "0.1"
 ipld-daemon-common = { path = "../common" }
-libipld = { path = "../../rust-ipld" }
+libipld = { git = "https://github.com/dvc94ch/rust-ipld" }
 signal-hook = "0.1"
 sled = "0.28"
 slog = "2.5"

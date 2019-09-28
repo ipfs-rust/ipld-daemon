@@ -6,5 +6,5 @@ edition = "2018"
 
 [dependencies]
 async-std = "0.99"
-libipld = { path = "../../rust-ipld" }
+libipld = { git = "https://github.com/dvc94ch/rust-ipld" }
 multibase = { git = "https://github.com/multiformats/rust-multibase" }
