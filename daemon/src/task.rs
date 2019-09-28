@@ -1,8 +1,10 @@
 use crate::error::Error;
 use async_std::os::unix::net::UnixStream;
 use ipld_daemon_common::{paths::Paths, utils};
+use libipld::block::{decode_ipld, validate};
 use libipld::cbor::{CborError, ReadCbor, WriteCbor};
-use libipld::{decode_ipld, references, validate, Cid};
+use libipld::gc::references;
+use libipld::Cid;
 use sled::Db;
 use slog::Logger;
 

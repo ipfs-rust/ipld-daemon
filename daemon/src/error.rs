@@ -3,7 +3,7 @@ use failure::Fail;
 #[derive(Debug, Fail)]
 pub enum Error {
     #[fail(display = "{}", _0)]
-    Block(libipld::BlockError),
+    Block(libipld::error::BlockError),
     #[fail(display = "{}", _0)]
     Db(sled::Error),
     #[fail(display = "{}", _0)]
@@ -12,8 +12,8 @@ pub enum Error {
     Cbor(libipld::cbor::CborError),
 }
 
-impl From<libipld::BlockError> for Error {
-    fn from(err: libipld::BlockError) -> Self {
+impl From<libipld::error::BlockError> for Error {
+    fn from(err: libipld::error::BlockError) -> Self {
         Self::Block(err)
     }
 }
